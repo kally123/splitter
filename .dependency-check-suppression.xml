@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <!-- 
+    Dependency Check Suppression File
+    Add false positives or accepted risks here with proper justification
+    -->
+    
+    <!-- Example: Spring Framework CVEs that don't apply to our usage -->
+    <!--
+    <suppress>
+        <notes><![CDATA[
+            This CVE only affects Spring Security SAML which we don't use.
+            Reviewed by: Security Team
+            Date: 2025-01-01
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.springframework\.security/spring-security-saml2-service-provider@.*$</packageUrl>
+        <cve>CVE-XXXX-XXXXX</cve>
+    </suppress>
+    -->
+
+    <!-- Suppress test dependencies -->
+    <suppress>
+        <notes><![CDATA[
+            Test dependencies are not deployed to production.
+        ]]></notes>
+        <filePath regex="true">.*[/\\]test[/\\].*</filePath>
+        <cpe>cpe:/a:*:*</cpe>
+    </suppress>
+
+    <!-- Suppress development tool vulnerabilities -->
+    <suppress>
+        <notes><![CDATA[
+            Development tools like Lombok are compile-time only and not included in runtime.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.projectlombok/lombok@.*$</packageUrl>
+        <cpe>cpe:/a:*:*</cpe>
+    </suppress>
+</suppressions>

@@ -1,0 +1,49 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: splitter
+
+commonLabels:
+  app.kubernetes.io/part-of: splitter
+  app.kubernetes.io/managed-by: kustomize
+
+resources:
+  - namespace.yaml
+  - configmaps.yaml
+  - secrets.yaml
+  - rbac.yaml
+  - ingress.yaml
+  - deployments/api-gateway.yaml
+  - deployments/expense-service.yaml
+  - deployments/balance-service.yaml
+  - rollouts/api-gateway-rollout.yaml
+
+configMapGenerator:
+  - name: splitter-version
+    literals:
+      - VERSION=1.0.0
+      - BUILD_DATE=2025-01-01
+
+images:
+  - name: splitter/api-gateway
+    newTag: latest
+  - name: splitter/expense-service
+    newTag: latest
+  - name: splitter/balance-service
+    newTag: latest
+  - name: splitter/user-service
+    newTag: latest
+  - name: splitter/group-service
+    newTag: latest
+  - name: splitter/settlement-service
+    newTag: latest
+  - name: splitter/notification-service
+    newTag: latest
+  - name: splitter/currency-service
+    newTag: latest
+  - name: splitter/receipt-service
+    newTag: latest
+  - name: splitter/payment-service
+    newTag: latest
+  - name: splitter/analytics-service
+    newTag: latest

@@ -1,0 +1,215 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: api-gateway-rollout
+  namespace: splitter
+spec:
+  replicas: 3
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8081"
+    spec:
+      serviceAccountName: splitter-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: api-gateway
+          image: splitter/api-gateway:latest
+          ports:
+            - containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: splitter-common-config
+            - secretRef:
+                name: splitter-secrets
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8081
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 5
+  strategy:
+    canary:
+      # Traffic routing
+      canaryService: api-gateway-canary
+      stableService: api-gateway-stable
+      trafficRouting:
+        nginx:
+          stableIngress: api-gateway-ingress
+          additionalIngressAnnotations:
+            canary-by-header: X-Canary
+            canary-by-header-value: "true"
+      
+      # Canary steps
+      steps:
+        # Start with 5% traffic
+        - setWeight: 5
+        - pause: { duration: 5m }
+        
+        # Increase to 20%
+        - setWeight: 20
+        - pause: { duration: 5m }
+        
+        # Run analysis
+        - analysis:
+            templates:
+              - templateName: success-rate
+              - templateName: latency-check
+            args:
+              - name: service-name
+                value: api-gateway
+        
+        # Increase to 50%
+        - setWeight: 50
+        - pause: { duration: 10m }
+        
+        # Run second analysis
+        - analysis:
+            templates:
+              - templateName: success-rate
+              - templateName: latency-check
+            args:
+              - name: service-name
+                value: api-gateway
+        
+        # Promote to 100%
+        - setWeight: 100
+        - pause: { duration: 2m }
+      
+      # Analysis for auto-rollback
+      analysis:
+        templates:
+          - templateName: success-rate
+        startingStep: 2
+        args:
+          - name: service-name
+            value: api-gateway
+      
+      # Anti-affinity for rollout pods
+      antiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          weight: 100
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: success-rate
+  namespace: splitter
+spec:
+  args:
+    - name: service-name
+  metrics:
+    - name: success-rate
+      interval: 1m
+      count: 5
+      successCondition: result[0] >= 0.99
+      failureLimit: 3
+      provider:
+        prometheus:
+          address: http://prometheus:9090
+          query: |
+            sum(rate(http_server_requests_seconds_count{
+              service="{{args.service-name}}",
+              status!~"5.*"
+            }[5m])) /
+            sum(rate(http_server_requests_seconds_count{
+              service="{{args.service-name}}"
+            }[5m]))
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: latency-check
+  namespace: splitter
+spec:
+  args:
+    - name: service-name
+  metrics:
+    - name: p99-latency
+      interval: 1m
+      count: 5
+      successCondition: result[0] < 0.5
+      failureLimit: 3
+      provider:
+        prometheus:
+          address: http://prometheus:9090
+          query: |
+            histogram_quantile(0.99, sum(rate(
+              http_server_requests_seconds_bucket{
+                service="{{args.service-name}}"
+              }[5m]
+            )) by (le))
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: error-rate
+  namespace: splitter
+spec:
+  args:
+    - name: service-name
+  metrics:
+    - name: error-rate
+      interval: 1m
+      count: 5
+      successCondition: result[0] < 0.01
+      failureLimit: 2
+      provider:
+        prometheus:
+          address: http://prometheus:9090
+          query: |
+            sum(rate(http_server_requests_seconds_count{
+              service="{{args.service-name}}",
+              status=~"5.*"
+            }[5m])) /
+            sum(rate(http_server_requests_seconds_count{
+              service="{{args.service-name}}"
+            }[5m]))
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-stable
+  namespace: splitter
+spec:
+  ports:
+    - port: 8081
+      targetPort: 8081
+  selector:
+    app: api-gateway
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-canary
+  namespace: splitter
+spec:
+  ports:
+    - port: 8081
+      targetPort: 8081
+  selector:
+    app: api-gateway

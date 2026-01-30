@@ -1,0 +1,94 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: splitter-staging
+
+resources:
+  - ../../base
+
+namePrefix: staging-
+
+commonLabels:
+  environment: staging
+
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: ".*"
+
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "100m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "256Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "512Mi"
+    target:
+      kind: Deployment
+      name: ".*"
+
+configMapGenerator:
+  - name: splitter-common-config
+    behavior: merge
+    literals:
+      - SPRING_PROFILES_ACTIVE=staging
+      - LOG_LEVEL=DEBUG
+      - OTEL_TRACES_SAMPLER_ARG=1.0
+
+images:
+  - name: splitter/api-gateway
+    newTag: staging
+  - name: splitter/expense-service
+    newTag: staging
+  - name: splitter/balance-service
+    newTag: staging
+  - name: splitter/user-service
+    newTag: staging
+  - name: splitter/group-service
+    newTag: staging
+  - name: splitter/settlement-service
+    newTag: staging
+  - name: splitter/notification-service
+    newTag: staging
+  - name: splitter/currency-service
+    newTag: staging
+  - name: splitter/receipt-service
+    newTag: staging
+  - name: splitter/payment-service
+    newTag: staging
+  - name: splitter/analytics-service
+    newTag: staging
+
+replicas:
+  - name: api-gateway
+    count: 2
+  - name: expense-service
+    count: 2
+  - name: balance-service
+    count: 2
+  - name: user-service
+    count: 1
+  - name: group-service
+    count: 1
+  - name: settlement-service
+    count: 1
+  - name: notification-service
+    count: 1
+  - name: currency-service
+    count: 1
+  - name: receipt-service
+    count: 1
+  - name: payment-service
+    count: 1
+  - name: analytics-service
+    count: 1

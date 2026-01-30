@@ -1,0 +1,314 @@
+# Prometheus Alert Rules for Splitter Application
+# Deploy to Prometheus/Alertmanager configuration
+
+groups:
+  - name: splitter-availability
+    interval: 30s
+    rules:
+      # Service Down Alerts
+      - alert: ServiceDown
+        expr: up{job=~"splitter-.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "{{ $labels.job }} has been down for more than 1 minute."
+          runbook_url: "https://wiki.splitter.com/runbooks/service-down"
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{status=~"5.*"}[5m])) by (service)
+          / sum(rate(http_server_requests_seconds_count[5m])) by (service)
+          > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High error rate on {{ $labels.service }}"
+          description: "Error rate is {{ $value | humanizePercentage }} on {{ $labels.service }}"
+          runbook_url: "https://wiki.splitter.com/runbooks/high-error-rate"
+
+      - alert: CriticalErrorRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{status=~"5.*"}[5m])) by (service)
+          / sum(rate(http_server_requests_seconds_count[5m])) by (service)
+          > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Critical error rate on {{ $labels.service }}"
+          description: "Error rate is {{ $value | humanizePercentage }} on {{ $labels.service }}"
+
+  - name: splitter-performance
+    interval: 30s
+    rules:
+      # Latency Alerts
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le, service))
+          > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High P95 latency on {{ $labels.service }}"
+          description: "P95 latency is {{ $value | humanizeDuration }} on {{ $labels.service }}"
+
+      - alert: CriticalLatencyP99
+        expr: |
+          histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket[5m])) by (le, service))
+          > 0.5
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Critical P99 latency on {{ $labels.service }}"
+          description: "P99 latency is {{ $value | humanizeDuration }} on {{ $labels.service }}"
+
+      - alert: SlowBalanceCalculations
+        expr: |
+          histogram_quantile(0.95, sum(rate(splitter_balance_calculation_time_seconds_bucket[5m])) by (le))
+          > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Balance calculations are slow"
+          description: "P95 balance calculation time is {{ $value | humanizeDuration }}"
+
+  - name: splitter-resources
+    interval: 30s
+    rules:
+      # Memory Alerts
+      - alert: HighMemoryUsage
+        expr: |
+          jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"}
+          > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Heap memory usage is {{ $value | humanizePercentage }}"
+
+      - alert: CriticalMemoryUsage
+        expr: |
+          jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"}
+          > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Critical memory usage on {{ $labels.instance }}"
+          description: "Heap memory usage is {{ $value | humanizePercentage }}"
+
+      # CPU Alerts
+      - alert: HighCPUUsage
+        expr: |
+          rate(process_cpu_seconds_total[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value | humanize }}%"
+
+      # Database Connection Pool
+      - alert: DatabaseConnectionPoolExhausted
+        expr: |
+          hikaricp_connections_active / hikaricp_connections_max > 0.9
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Database connection pool nearly exhausted"
+          description: "{{ $value | humanizePercentage }} of connections in use"
+
+      - alert: DatabaseConnectionPoolWaiting
+        expr: |
+          hikaricp_connections_pending > 10
+        for: 1m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High number of pending database connections"
+          description: "{{ $value }} connections waiting"
+
+  - name: splitter-business
+    interval: 60s
+    rules:
+      # Business Metric Alerts
+      - alert: NoExpensesCreated
+        expr: |
+          increase(splitter_expenses_created_total[1h]) == 0
+        for: 1h
+        labels:
+          severity: warning
+          team: product
+        annotations:
+          summary: "No expenses created in the last hour"
+          description: "This might indicate a problem with the expense creation flow"
+
+      - alert: PaymentFailureRateHigh
+        expr: |
+          sum(rate(splitter_payments_processed_detailed_total{status="failed"}[15m]))
+          / sum(rate(splitter_payments_processed_detailed_total[15m]))
+          > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          team: payments
+        annotations:
+          summary: "High payment failure rate"
+          description: "Payment failure rate is {{ $value | humanizePercentage }}"
+
+      - alert: ReceiptProcessingFailures
+        expr: |
+          sum(rate(splitter_receipts_scanned_detailed_total{status="failed"}[15m]))
+          / sum(rate(splitter_receipts_scanned_detailed_total[15m]))
+          > 0.2
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High receipt processing failure rate"
+          description: "Receipt OCR failure rate is {{ $value | humanizePercentage }}"
+
+  - name: splitter-security
+    interval: 30s
+    rules:
+      # Security Alerts
+      - alert: HighLoginFailureRate
+        expr: |
+          sum(rate(splitter_auth_login_failures_total[5m]))
+          / sum(rate(splitter_auth_login_attempts_total[5m]))
+          > 0.3
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "High login failure rate"
+          description: "Login failure rate is {{ $value | humanizePercentage }}"
+
+      - alert: RateLimitExceeded
+        expr: |
+          sum(rate(splitter_rate_limit_exceeded_total[5m])) > 100
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "High rate of rate limit violations"
+          description: "{{ $value }} rate limit violations per second"
+
+      - alert: SuspiciousAuditEvents
+        expr: |
+          sum(rate(splitter_audit_events_total{action=~".*ADMIN.*",success="false"}[5m])) > 10
+        for: 5m
+        labels:
+          severity: critical
+          team: security
+        annotations:
+          summary: "Suspicious failed admin operations"
+          description: "{{ $value }} failed admin operations per second"
+
+  - name: splitter-infrastructure
+    interval: 30s
+    rules:
+      # Kafka/Messaging
+      - alert: KafkaConsumerLag
+        expr: |
+          kafka_consumer_lag_records > 10000
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High Kafka consumer lag"
+          description: "Consumer lag is {{ $value }} messages for {{ $labels.topic }}"
+
+      - alert: KafkaCriticalLag
+        expr: |
+          kafka_consumer_lag_records > 100000
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Critical Kafka consumer lag"
+          description: "Consumer lag is {{ $value }} messages for {{ $labels.topic }}"
+
+      # Redis Cache
+      - alert: CacheHighMissRate
+        expr: |
+          sum(rate(splitter_cache_misses_total[5m])) 
+          / (sum(rate(splitter_cache_hits_total[5m])) + sum(rate(splitter_cache_misses_total[5m])))
+          > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High cache miss rate"
+          description: "Cache miss rate is {{ $value | humanizePercentage }}"
+
+      # Disk Space (for logs, uploads)
+      - alert: DiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.2
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Only {{ $value | humanizePercentage }} disk space remaining"
+
+  - name: splitter-slo
+    interval: 30s
+    rules:
+      # SLO Burn Rate Alerts
+      - alert: SLOBurnRateTooHigh
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{status=~"5.*"}[1h])) 
+            / sum(rate(http_server_requests_seconds_count[1h]))
+          ) > (14.4 * 0.001)
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+          slo: availability
+        annotations:
+          summary: "SLO burn rate too high - will exhaust monthly budget"
+          description: "Current error rate will consume entire monthly error budget in < 2 days"
+
+      - alert: SLOLatencyBudgetBurning
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_bucket{le="0.2"}[1h]))
+            / sum(rate(http_server_requests_seconds_count[1h]))
+          ) < 0.95
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+          slo: latency
+        annotations:
+          summary: "Latency SLO at risk"
+          description: "Less than 95% of requests completing under 200ms"

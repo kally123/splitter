@@ -1,0 +1,94 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: splitter
+
+resources:
+  - ../../base
+
+namePrefix: prod-
+
+commonLabels:
+  environment: production
+
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 5
+    target:
+      kind: Deployment
+      name: ".*"
+
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "1Gi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "2000m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "2Gi"
+    target:
+      kind: Deployment
+      name: ".*-service"
+
+configMapGenerator:
+  - name: splitter-common-config
+    behavior: merge
+    literals:
+      - SPRING_PROFILES_ACTIVE=production
+      - LOG_LEVEL=WARN
+      - OTEL_TRACES_SAMPLER_ARG=0.1
+
+images:
+  - name: splitter/api-gateway
+    newTag: v1.0.0
+  - name: splitter/expense-service
+    newTag: v1.0.0
+  - name: splitter/balance-service
+    newTag: v1.0.0
+  - name: splitter/user-service
+    newTag: v1.0.0
+  - name: splitter/group-service
+    newTag: v1.0.0
+  - name: splitter/settlement-service
+    newTag: v1.0.0
+  - name: splitter/notification-service
+    newTag: v1.0.0
+  - name: splitter/currency-service
+    newTag: v1.0.0
+  - name: splitter/receipt-service
+    newTag: v1.0.0
+  - name: splitter/payment-service
+    newTag: v1.0.0
+  - name: splitter/analytics-service
+    newTag: v1.0.0
+
+replicas:
+  - name: api-gateway
+    count: 5
+  - name: expense-service
+    count: 5
+  - name: balance-service
+    count: 5
+  - name: user-service
+    count: 3
+  - name: group-service
+    count: 3
+  - name: settlement-service
+    count: 3
+  - name: notification-service
+    count: 3
+  - name: currency-service
+    count: 2
+  - name: receipt-service
+    count: 2
+  - name: payment-service
+    count: 3
+  - name: analytics-service
+    count: 2

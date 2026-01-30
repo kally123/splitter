@@ -1,0 +1,106 @@
+global:
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from: 'alerts@splitter.com'
+  smtp_auth_username: '${SMTP_USERNAME}'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+
+  slack_api_url: '${SLACK_WEBHOOK_URL}'
+
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+route:
+  group_by: ['alertname', 'severity', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'default-receiver'
+  routes:
+    # Critical alerts go to PagerDuty
+    - match:
+        severity: critical
+      receiver: 'pagerduty-critical'
+      continue: true
+
+    # Security alerts go to security team
+    - match:
+        team: security
+      receiver: 'security-team'
+      continue: true
+
+    # Payment issues go to payments team
+    - match:
+        team: payments
+      receiver: 'payments-team'
+      continue: true
+
+    # All production alerts to Slack
+    - match_re:
+        env: production
+      receiver: 'slack-production'
+
+receivers:
+  - name: 'default-receiver'
+    email_configs:
+      - to: 'oncall@splitter.com'
+        send_resolved: true
+        html: '{{ template "email.default.html" . }}'
+    slack_configs:
+      - channel: '#alerts'
+        send_resolved: true
+        title: '{{ template "slack.default.title" . }}'
+        text: '{{ template "slack.default.text" . }}'
+        color: '{{ if eq .Status "firing" }}{{ if eq .CommonLabels.severity "critical" }}danger{{ else if eq .CommonLabels.severity "warning" }}warning{{ else }}good{{ end }}{{ else }}good{{ end }}'
+
+  - name: 'pagerduty-critical'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SERVICE_KEY}'
+        severity: critical
+        description: '{{ template "pagerduty.default.description" . }}'
+
+  - name: 'security-team'
+    email_configs:
+      - to: 'security@splitter.com'
+        send_resolved: true
+    slack_configs:
+      - channel: '#security-alerts'
+        send_resolved: true
+
+  - name: 'payments-team'
+    email_configs:
+      - to: 'payments@splitter.com'
+        send_resolved: true
+    slack_configs:
+      - channel: '#payments-alerts'
+        send_resolved: true
+
+  - name: 'slack-production'
+    slack_configs:
+      - channel: '#production-alerts'
+        send_resolved: true
+        title: '{{ .Status | toUpper }}: {{ .CommonAnnotations.summary }}'
+        text: '{{ .CommonAnnotations.description }}'
+        actions:
+          - type: button
+            text: 'Runbook'
+            url: '{{ .CommonAnnotations.runbook_url }}'
+          - type: button
+            text: 'Dashboard'
+            url: 'http://grafana:3000/d/splitter-overview'
+
+inhibit_rules:
+  # Inhibit warning alerts when critical alert is firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'service']
+
+  # Inhibit all alerts when service is down
+  - source_match:
+      alertname: 'ServiceDown'
+    target_match_re:
+      alertname: '.+'
+    equal: ['service']
+
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

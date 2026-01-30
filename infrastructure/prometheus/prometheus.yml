@@ -1,0 +1,146 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'splitter-production'
+    env: 'production'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+rule_files:
+  - "alert-rules.yml"
+
+scrape_configs:
+  # API Gateway
+  - job_name: 'splitter-api-gateway'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['api-gateway:8081']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'api-gateway'
+
+  # User Service
+  - job_name: 'splitter-user-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['user-service:8082']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'user-service'
+
+  # Group Service
+  - job_name: 'splitter-group-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['group-service:8083']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'group-service'
+
+  # Expense Service
+  - job_name: 'splitter-expense-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['expense-service:8084']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'expense-service'
+
+  # Balance Service
+  - job_name: 'splitter-balance-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['balance-service:8085']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'balance-service'
+
+  # Settlement Service
+  - job_name: 'splitter-settlement-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['settlement-service:8086']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'settlement-service'
+
+  # Currency Service
+  - job_name: 'splitter-currency-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['currency-service:8087']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'currency-service'
+
+  # Receipt Service
+  - job_name: 'splitter-receipt-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['receipt-service:8088']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'receipt-service'
+
+  # Payment Service
+  - job_name: 'splitter-payment-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['payment-service:8089']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'payment-service'
+
+  # Analytics Service
+  - job_name: 'splitter-analytics-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['analytics-service:8090']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'analytics-service'
+
+  # Notification Service
+  - job_name: 'splitter-notification-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['notification-service:8091']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'notification-service'
+
+  # PostgreSQL Exporter
+  - job_name: 'postgresql'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  # Redis Exporter
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  # Kafka Exporter
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka-exporter:9308']
+
+  # Node Exporter (infrastructure)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
