@@ -38,21 +38,21 @@ public class UserService {
      */
     @Transactional
     public Mono<UserDto> createUser(CreateUserRequest request) {
-        log.info("Creating user with email: {}", request.email());
+        log.info("Creating user with email: {}", request.getEmail());
 
-        return userRepository.existsByEmail(request.email())
+        return userRepository.existsByEmail(request.getEmail())
                 .flatMap(exists -> {
                     if (exists) {
-                        return Mono.error(new EmailAlreadyExistsException(request.email()));
+                        return Mono.error(new EmailAlreadyExistsException(request.getEmail()));
                     }
 
                     User user = User.builder()
-                            .email(request.email())
-                            .passwordHash(passwordEncoder.encode(request.password()))
-                            .firstName(request.firstName())
-                            .lastName(request.lastName())
+                            .email(request.getEmail())
+                            .passwordHash(passwordEncoder.encode(request.getPassword()))
+                            .firstName(request.getFirstName())
+                            .lastName(request.getLastName())
                             .displayName(buildDisplayName(request))
-                            .defaultCurrency(request.defaultCurrency() != null ? request.defaultCurrency() : "USD")
+                            .defaultCurrency(request.getDefaultCurrency() != null ? request.getDefaultCurrency() : "USD")
                             .createdAt(Instant.now())
                             .updatedAt(Instant.now())
                             .build();
@@ -173,21 +173,27 @@ public class UserService {
     // Private helper methods
 
     private String buildDisplayName(CreateUserRequest request) {
-        if (request.displayName() != null && !request.displayName().isBlank()) {
-            return request.displayName();
+        if (request.getDisplayName() != null && !request.getDisplayName().isBlank()) {
+            return request.getDisplayName();
         }
-        String firstName = request.firstName() != null ? request.firstName() : "";
-        String lastName = request.lastName() != null ? request.lastName() : "";
+        String firstName = request.getFirstName() != null ? request.getFirstName() : "";
+        String lastName = request.getLastName() != null ? request.getLastName() : "";
         String fullName = (firstName + " " + lastName).trim();
-        return fullName.isEmpty() ? request.email().split("@")[0] : fullName;
+        return fullName.isEmpty() ? request.getEmail().split("@")[0] : fullName;
     }
 
     private void publishUserCreatedEvent(User user) {
-        UserCreatedEvent event = UserCreatedEvent.builder()
+        UserCreatedEvent.UserData userData = UserCreatedEvent.UserData.builder()
                 .userId(user.getId())
                 .email(user.getEmail())
                 .displayName(user.getDisplayName())
                 .defaultCurrency(user.getDefaultCurrency())
+                .createdAt(user.getCreatedAt())
+                .build();
+
+        UserCreatedEvent event = UserCreatedEvent.builder()
+                .subject(user.getId().toString())
+                .data(userData)
                 .build();
 
         kafkaTemplate.send(EventTopics.USER_EVENTS, user.getId().toString(), event)

@@ -7,6 +7,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.web.server.context.ServerSecurityContextRepository;
 import org.springframework.security.web.server.header.ReferrerPolicyServerHttpHeadersWriter;
 import org.springframework.security.web.server.header.XFrameOptionsServerHttpHeadersWriter;
 import org.springframework.security.web.server.header.XXssProtectionServerHttpHeadersWriter;
@@ -28,11 +29,11 @@ import java.util.List;
 public class SecurityHeadersConfig {
 
     private final JwtAuthenticationManager authenticationManager;
-    private final SecurityContextRepository securityContextRepository;
+    private final ServerSecurityContextRepository securityContextRepository;
 
     public SecurityHeadersConfig(
             JwtAuthenticationManager authenticationManager,
-            SecurityContextRepository securityContextRepository) {
+            ServerSecurityContextRepository securityContextRepository) {
         this.authenticationManager = authenticationManager;
         this.securityContextRepository = securityContextRepository;
     }

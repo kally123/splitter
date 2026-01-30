@@ -2,7 +2,6 @@ package com.splitter.security;
 
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
-import io.github.bucket4j.Refill;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -82,24 +81,16 @@ public class RateLimitingFilter implements WebFilter {
     }
 
     private Bucket createBucket(String key) {
-        Bandwidth limit = Bandwidth.classic(REQUESTS_PER_MINUTE, 
-            Refill.greedy(REQUESTS_PER_MINUTE, Duration.ofMinutes(1)));
-        Bandwidth burst = Bandwidth.classic(BURST_CAPACITY, 
-            Refill.intervally(BURST_CAPACITY, Duration.ofSeconds(1)));
-        
         return Bucket.builder()
-            .addLimit(limit)
-            .addLimit(burst)
+            .addLimit(Bandwidth.simple(REQUESTS_PER_MINUTE, Duration.ofMinutes(1)))
+            .addLimit(Bandwidth.simple(BURST_CAPACITY, Duration.ofSeconds(1)))
             .build();
     }
 
     private Bucket createAuthBucket(String key) {
         // Stricter rate limiting for auth endpoints
-        Bandwidth limit = Bandwidth.classic(AUTH_REQUESTS_PER_MINUTE, 
-            Refill.greedy(AUTH_REQUESTS_PER_MINUTE, Duration.ofMinutes(1)));
-        
         return Bucket.builder()
-            .addLimit(limit)
+            .addLimit(Bandwidth.simple(AUTH_REQUESTS_PER_MINUTE, Duration.ofMinutes(1)))
             .build();
     }
 

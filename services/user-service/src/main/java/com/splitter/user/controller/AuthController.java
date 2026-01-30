@@ -37,14 +37,14 @@ public class AuthController {
     public Mono<AuthService.AuthResponse> register(
             @Valid @RequestBody CreateUserRequest request,
             ServerHttpRequest httpRequest) {
-        log.info("Registration request for email: {}", request.email());
+        log.info("Registration request for email: {}", request.getEmail());
 
         String deviceInfo = httpRequest.getHeaders().getFirst("User-Agent");
         String ipAddress = getClientIpAddress(httpRequest);
 
         return userService.createUser(request)
                 .flatMap(user -> authService.login(
-                        new AuthService.LoginRequest(request.email(), request.password()),
+                        new AuthService.LoginRequest(request.getEmail(), request.getPassword()),
                         deviceInfo,
                         ipAddress
                 ));

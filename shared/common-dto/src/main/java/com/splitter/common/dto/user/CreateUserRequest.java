@@ -25,7 +25,12 @@ public class CreateUserRequest {
     @Size(min = 8, max = 100, message = "Password must be between 8 and 100 characters")
     private String password;
 
-    @NotBlank(message = "Display name is required")
+    @Size(max = 100, message = "First name must be at most 100 characters")
+    private String firstName;
+
+    @Size(max = 100, message = "Last name must be at most 100 characters")
+    private String lastName;
+
     @Size(min = 1, max = 100, message = "Display name must be between 1 and 100 characters")
     private String displayName;
 

@@ -35,7 +35,7 @@ public class UserController {
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(summary = "Create a new user", description = "Register a new user account")
     public Mono<UserDto> createUser(@Valid @RequestBody CreateUserRequest request) {
-        log.info("Creating new user with email: {}", request.email());
+        log.info("Creating new user with email: {}", request.getEmail());
         return userService.createUser(request);
     }
 
