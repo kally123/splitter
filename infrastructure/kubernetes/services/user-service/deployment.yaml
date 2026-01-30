@@ -1,0 +1,128 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: splitter
+  labels:
+    app: user-service
+    app.kubernetes.io/name: user-service
+    app.kubernetes.io/part-of: splitter-platform
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: user-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: user-service
+        app.kubernetes.io/name: user-service
+        app.kubernetes.io/part-of: splitter-platform
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      serviceAccountName: splitter-service-account
+      containers:
+      - name: user-service
+        image: ghcr.io/splitter/user-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8081
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: splitter-config
+        - secretRef:
+            name: splitter-secrets
+        env:
+        - name: JAVA_OPTS
+          value: "-XX:+UseG1GC -XX:MaxRAMPercentage=75.0"
+        - name: SERVER_PORT
+          value: "8081"
+        - name: SPRING_R2DBC_URL
+          valueFrom:
+            secretKeyRef:
+              name: splitter-secrets
+              key: USER_DB_URL
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8081
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: splitter
+  labels:
+    app: user-service
+    app.kubernetes.io/name: user-service
+    app.kubernetes.io/part-of: splitter-platform
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8081
+    targetPort: 8081
+    protocol: TCP
+    name: http
+  selector:
+    app: user-service
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: user-service-hpa
+  namespace: splitter
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: user-service
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70

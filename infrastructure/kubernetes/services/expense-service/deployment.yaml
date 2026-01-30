@@ -1,0 +1,128 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: expense-service
+  namespace: splitter
+  labels:
+    app: expense-service
+    app.kubernetes.io/name: expense-service
+    app.kubernetes.io/part-of: splitter-platform
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: expense-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: expense-service
+        app.kubernetes.io/name: expense-service
+        app.kubernetes.io/part-of: splitter-platform
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8083"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      serviceAccountName: splitter-service-account
+      containers:
+      - name: expense-service
+        image: ghcr.io/splitter/expense-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8083
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: splitter-config
+        - secretRef:
+            name: splitter-secrets
+        env:
+        - name: JAVA_OPTS
+          value: "-XX:+UseG1GC -XX:MaxRAMPercentage=75.0"
+        - name: SERVER_PORT
+          value: "8083"
+        - name: SPRING_R2DBC_URL
+          valueFrom:
+            secretKeyRef:
+              name: splitter-secrets
+              key: EXPENSE_DB_URL
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8083
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8083
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: expense-service
+  namespace: splitter
+  labels:
+    app: expense-service
+    app.kubernetes.io/name: expense-service
+    app.kubernetes.io/part-of: splitter-platform
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8083
+    targetPort: 8083
+    protocol: TCP
+    name: http
+  selector:
+    app: expense-service
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: expense-service-hpa
+  namespace: splitter
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: expense-service
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70

@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: splitter
+  labels:
+    name: splitter
+    app.kubernetes.io/name: splitter
+    app.kubernetes.io/part-of: splitter-platform
+    environment: production

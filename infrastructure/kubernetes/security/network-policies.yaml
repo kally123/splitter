@@ -1,0 +1,568 @@
+# Network Policies for Splitter Platform
+# Implements default-deny with explicit allow rules
+
+# Default deny all ingress traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: splitter
+  labels:
+    app.kubernetes.io/name: splitter
+    app.kubernetes.io/part-of: splitter-platform
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+---
+# Default deny all egress traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: splitter
+  labels:
+    app.kubernetes.io/name: splitter
+    app.kubernetes.io/part-of: splitter-platform
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+---
+# Allow DNS resolution for all pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: splitter
+  labels:
+    app.kubernetes.io/name: splitter
+    app.kubernetes.io/part-of: splitter-platform
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+---
+# API Gateway - Allow ingress from ingress controller
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-gateway-ingress
+  namespace: splitter
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
+---
+# API Gateway - Allow egress to internal services
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-gateway-egress
+  namespace: splitter
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+  - Egress
+  egress:
+  # To internal services
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/part-of: splitter-platform
+    ports:
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 8082
+    - protocol: TCP
+      port: 8083
+    - protocol: TCP
+      port: 8084
+    - protocol: TCP
+      port: 8085
+    - protocol: TCP
+      port: 8086
+  # To Redis
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+---
+# User Service - Allow ingress from API Gateway
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: user-service-ingress
+  namespace: splitter
+spec:
+  podSelector:
+    matchLabels:
+      app: user-service
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api-gateway
+    ports:
+    - protocol: TCP
+      port: 8081
+  # From other services for internal calls
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/part-of: splitter-platform
+    ports:
+    - protocol: TCP
+      port: 8081
+---
+# User Service - Allow egress to database and Kafka
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: user-service-egress
+  namespace: splitter
+spec:
+  podSelector:
+    matchLabels:
+      app: user-service
+  policyTypes:
+  - Egress
+  egress:
+  # To PostgreSQL
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  # To Kafka
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kafka
+    ports:
+    - protocol: TCP
+      port: 9092
+  # To Redis
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+---
+# Group Service - Allow ingress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: group-service-ingress
+  namespace: splitter
+spec:
+  podSelector:
+    matchLabels:
+      app: group-service
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api-gateway
+    ports:
+    - protocol: TCP
+      port: 8082
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/part-of: splitter-platform
+    ports:
+    - protocol: TCP
+      port: 8082
+---
+# Group Service - Allow egress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: group-service-egress
+  namespace: splitter
+spec:
+  podSelector:
+    matchLabels:
+      app: group-service
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kafka
+    ports:
+    - protocol: TCP
+      port: 9092
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  # To User Service for member validation
+  - to:
+    - podSelector:
+        matchLabels:
+          app: user-service
+    ports:
+    - protocol: TCP
+      port: 8081
+---
+# Expense Service - Allow ingress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: expense-service-ingress
+  namespace: splitter
+spec:
+  podSelector:
+    matchLabels:
+      app: expense-service
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api-gateway
+    ports:
+    - protocol: TCP
+      port: 8083
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/part-of: splitter-platform
+    ports:
+    - protocol: TCP
+      port: 8083
+---
+# Expense Service - Allow egress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: expense-service-egress
+  namespace: splitter
+spec:
+  podSelector:
+    matchLabels:
+      app: expense-service
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kafka
+    ports:
+    - protocol: TCP
+      port: 9092
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  # To Group Service for validation
+  - to:
+    - podSelector:
+        matchLabels:
+          app: group-service
+    ports:
+    - protocol: TCP
+      port: 8082
+---
+# Balance Service - Allow ingress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: balance-service-ingress
+  namespace: splitter
+spec:
+  podSelector:
+    matchLabels:
+      app: balance-service
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api-gateway
+    ports:
+    - protocol: TCP
+      port: 8084
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/part-of: splitter-platform
+    ports:
+    - protocol: TCP
+      port: 8084
+---
+# Balance Service - Allow egress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: balance-service-egress
+  namespace: splitter
+spec:
+  podSelector:
+    matchLabels:
+      app: balance-service
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kafka
+    ports:
+    - protocol: TCP
+      port: 9092
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+---
+# Settlement Service - Allow ingress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: settlement-service-ingress
+  namespace: splitter
+spec:
+  podSelector:
+    matchLabels:
+      app: settlement-service
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api-gateway
+    ports:
+    - protocol: TCP
+      port: 8085
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/part-of: splitter-platform
+    ports:
+    - protocol: TCP
+      port: 8085
+---
+# Settlement Service - Allow egress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: settlement-service-egress
+  namespace: splitter
+spec:
+  podSelector:
+    matchLabels:
+      app: settlement-service
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kafka
+    ports:
+    - protocol: TCP
+      port: 9092
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  # To Balance Service for updates
+  - to:
+    - podSelector:
+        matchLabels:
+          app: balance-service
+    ports:
+    - protocol: TCP
+      port: 8084
+---
+# Notification Service - Allow ingress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: notification-service-ingress
+  namespace: splitter
+spec:
+  podSelector:
+    matchLabels:
+      app: notification-service
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api-gateway
+    ports:
+    - protocol: TCP
+      port: 8086
+---
+# Notification Service - Allow egress (including external SMTP)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: notification-service-egress
+  namespace: splitter
+spec:
+  podSelector:
+    matchLabels:
+      app: notification-service
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kafka
+    ports:
+    - protocol: TCP
+      port: 9092
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  # Allow external SMTP (ports 25, 465, 587)
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 25
+    - protocol: TCP
+      port: 465
+    - protocol: TCP
+      port: 587
+---
+# Allow Prometheus scraping
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: splitter
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: splitter-platform
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+      podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 8082
+    - protocol: TCP
+      port: 8083
+    - protocol: TCP
+      port: 8084
+    - protocol: TCP
+      port: 8085
+    - protocol: TCP
+      port: 8086

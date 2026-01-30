@@ -1,0 +1,221 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: splitter-alerts
+  namespace: splitter
+  labels:
+    app.kubernetes.io/name: splitter
+    app.kubernetes.io/part-of: splitter-platform
+    release: prometheus
+    role: alert-rules
+spec:
+  groups:
+  - name: splitter.availability
+    interval: 30s
+    rules:
+    # High error rate alert
+    - alert: SplitterHighErrorRate
+      expr: |
+        (
+          sum(rate(http_server_requests_seconds_count{namespace="splitter", status=~"5.."}[5m])) 
+          / sum(rate(http_server_requests_seconds_count{namespace="splitter"}[5m]))
+        ) > 0.05
+      for: 5m
+      labels:
+        severity: critical
+        service: splitter
+      annotations:
+        summary: "High error rate detected in Splitter services"
+        description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%) for the last 5 minutes"
+        runbook_url: "https://docs.splitter.example.com/runbooks/high-error-rate"
+
+    # High latency alert
+    - alert: SplitterHighLatency
+      expr: |
+        histogram_quantile(0.95, 
+          sum(rate(http_server_requests_seconds_bucket{namespace="splitter"}[5m])) by (le, service)
+        ) > 1
+      for: 5m
+      labels:
+        severity: warning
+        service: splitter
+      annotations:
+        summary: "High latency detected in {{ $labels.service }}"
+        description: "95th percentile latency is {{ $value | humanizeDuration }} (threshold: 1s)"
+
+    # Service down alert
+    - alert: SplitterServiceDown
+      expr: |
+        up{namespace="splitter", job=~".*-service"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        service: splitter
+      annotations:
+        summary: "Splitter service {{ $labels.job }} is down"
+        description: "Service {{ $labels.job }} has been down for more than 2 minutes"
+
+  - name: splitter.resources
+    interval: 30s
+    rules:
+    # High memory usage
+    - alert: SplitterHighMemoryUsage
+      expr: |
+        (
+          container_memory_working_set_bytes{namespace="splitter", container!=""} 
+          / container_spec_memory_limit_bytes{namespace="splitter", container!=""}
+        ) > 0.9
+      for: 5m
+      labels:
+        severity: warning
+        service: splitter
+      annotations:
+        summary: "High memory usage in {{ $labels.pod }}"
+        description: "Memory usage is {{ $value | humanizePercentage }} of limit"
+
+    # High CPU usage
+    - alert: SplitterHighCPUUsage
+      expr: |
+        (
+          sum(rate(container_cpu_usage_seconds_total{namespace="splitter", container!=""}[5m])) by (pod)
+          / sum(kube_pod_container_resource_limits{namespace="splitter", resource="cpu"}) by (pod)
+        ) > 0.9
+      for: 5m
+      labels:
+        severity: warning
+        service: splitter
+      annotations:
+        summary: "High CPU usage in {{ $labels.pod }}"
+        description: "CPU usage is {{ $value | humanizePercentage }} of limit"
+
+    # Pod not ready
+    - alert: SplitterPodNotReady
+      expr: |
+        kube_pod_status_ready{namespace="splitter", condition="true"} == 0
+      for: 5m
+      labels:
+        severity: critical
+        service: splitter
+      annotations:
+        summary: "Pod {{ $labels.pod }} is not ready"
+        description: "Pod has been not ready for more than 5 minutes"
+
+    # Pod restarts
+    - alert: SplitterPodRestarting
+      expr: |
+        increase(kube_pod_container_status_restarts_total{namespace="splitter"}[1h]) > 3
+      for: 5m
+      labels:
+        severity: warning
+        service: splitter
+      annotations:
+        summary: "Pod {{ $labels.pod }} is restarting frequently"
+        description: "Pod has restarted {{ $value }} times in the last hour"
+
+  - name: splitter.kafka
+    interval: 30s
+    rules:
+    # Kafka consumer lag
+    - alert: SplitterKafkaConsumerLag
+      expr: |
+        sum(kafka_consumer_fetch_manager_records_lag{namespace="splitter"}) by (client_id, topic) > 1000
+      for: 10m
+      labels:
+        severity: warning
+        service: splitter
+      annotations:
+        summary: "High Kafka consumer lag for {{ $labels.client_id }}"
+        description: "Consumer lag for topic {{ $labels.topic }} is {{ $value }} messages"
+
+    # Kafka consumer not consuming
+    - alert: SplitterKafkaConsumerStalled
+      expr: |
+        rate(kafka_consumer_fetch_manager_records_consumed_total{namespace="splitter"}[5m]) == 0
+      for: 10m
+      labels:
+        severity: warning
+        service: splitter
+      annotations:
+        summary: "Kafka consumer {{ $labels.client_id }} is not consuming messages"
+        description: "No messages consumed in the last 10 minutes"
+
+  - name: splitter.database
+    interval: 30s
+    rules:
+    # Database connection pool exhausted
+    - alert: SplitterDBConnectionPoolExhausted
+      expr: |
+        r2dbc_pool_acquired{namespace="splitter"} 
+        / r2dbc_pool_max_allocated{namespace="splitter"} > 0.9
+      for: 5m
+      labels:
+        severity: warning
+        service: splitter
+      annotations:
+        summary: "Database connection pool near exhaustion"
+        description: "Connection pool is {{ $value | humanizePercentage }} utilized"
+
+    # Slow database queries
+    - alert: SplitterSlowDatabaseQueries
+      expr: |
+        histogram_quantile(0.95, 
+          sum(rate(r2dbc_pool_acquire_duration_seconds_bucket{namespace="splitter"}[5m])) by (le)
+        ) > 0.5
+      for: 5m
+      labels:
+        severity: warning
+        service: splitter
+      annotations:
+        summary: "Slow database connection acquisition"
+        description: "95th percentile connection acquisition time is {{ $value | humanizeDuration }}"
+
+  - name: splitter.redis
+    interval: 30s
+    rules:
+    # Redis connection issues
+    - alert: SplitterRedisConnectionFailed
+      expr: |
+        increase(lettuce_command_failure_total{namespace="splitter"}[5m]) > 10
+      for: 5m
+      labels:
+        severity: warning
+        service: splitter
+      annotations:
+        summary: "Redis command failures detected"
+        description: "{{ $value }} Redis command failures in the last 5 minutes"
+
+  - name: splitter.slo
+    interval: 30s
+    rules:
+    # SLO: 99.9% availability
+    - alert: SplitterSLOAvailabilityBreach
+      expr: |
+        (
+          1 - (
+            sum(rate(http_server_requests_seconds_count{namespace="splitter", status=~"5.."}[1h]))
+            / sum(rate(http_server_requests_seconds_count{namespace="splitter"}[1h]))
+          )
+        ) < 0.999
+      for: 5m
+      labels:
+        severity: critical
+        service: splitter
+        slo: availability
+      annotations:
+        summary: "SLO availability breach"
+        description: "Availability is {{ $value | humanizePercentage }} (SLO: 99.9%)"
+
+    # SLO: 95% of requests under 500ms
+    - alert: SplitterSLOLatencyBreach
+      expr: |
+        histogram_quantile(0.95, 
+          sum(rate(http_server_requests_seconds_bucket{namespace="splitter"}[1h])) by (le)
+        ) > 0.5
+      for: 15m
+      labels:
+        severity: warning
+        service: splitter
+        slo: latency
+      annotations:
+        summary: "SLO latency breach"
+        description: "95th percentile latency is {{ $value | humanizeDuration }} (SLO: 500ms)"

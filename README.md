@@ -112,6 +112,17 @@ mvn spring-boot:run
 ```bash
 cd frontend/web
 npm install
+```
+
+Create environment file for the frontend:
+```bash
+# Create .env.local with API configuration
+echo "NEXT_PUBLIC_API_URL=http://localhost:8080/api/v1" > .env.local
+echo "NEXT_PUBLIC_WS_URL=ws://localhost:8080" >> .env.local
+```
+
+Start the development server:
+```bash
 npm run dev
 ```
 
@@ -151,10 +162,77 @@ splitter/
 └── scripts/                    # Utility scripts
 ```
 
-## 🧪 Running Tests
+## 🌐 Frontend Application
+
+The web frontend is built with **Next.js 14**, **TypeScript**, and **TailwindCSS**.
+
+### Tech Stack
+
+- **Framework**: Next.js 14 (App Router)
+- **Language**: TypeScript
+- **Styling**: TailwindCSS + shadcn/ui components
+- **State Management**: Zustand (with localStorage persistence)
+- **Data Fetching**: TanStack React Query
+- **Form Handling**: React Hook Form + Zod validation
+- **Real-time**: WebSocket for live updates
+
+### Frontend Structure
+
+```
+frontend/web/src/
+├── app/                    # Next.js App Router pages
+│   ├── auth/              # Login & Register pages
+│   ├── dashboard/         # Main dashboard
+│   ├── groups/            # Group management
+│   ├── expenses/          # Expense management
+│   ├── balances/          # Balance overview
+│   ├── activity/          # Activity & notifications
+│   └── settings/          # User settings
+├── components/            # React components
+│   ├── ui/               # Base UI components (Button, Card, Dialog, etc.)
+│   ├── auth/             # Auth components (LoginForm, RegisterForm)
+│   ├── layout/           # Layout (Header, Sidebar, MobileNav)
+│   ├── groups/           # Group components
+│   ├── expenses/         # Expense components
+│   ├── balances/         # Balance & settlement components
+│   └── notifications/    # Notification components
+└── lib/
+    ├── api/              # Axios API client with token refresh
+    ├── hooks/            # React Query hooks
+    ├── stores/           # Zustand stores
+    ├── types/            # TypeScript interfaces
+    └── utils/            # Utility functions (formatters, validators)
+```
+
+### Frontend Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `NEXT_PUBLIC_API_URL` | Backend API base URL | `http://localhost:8080/api/v1` |
+| `NEXT_PUBLIC_WS_URL` | WebSocket URL for real-time updates | `ws://localhost:8080` |
+
+### Frontend Scripts
 
 ```bash
-# Run all tests
+cd frontend/web
+
+# Development
+npm run dev          # Start dev server on http://localhost:3000
+
+# Production
+npm run build        # Build for production
+npm run start        # Start production server
+
+# Linting
+npm run lint         # Run ESLint
+```
+
+## 🧪 Running Tests
+
+### Unit Tests
+
+```bash
+# Run all unit tests
 mvn test
 
 # Run tests for a specific service
@@ -166,6 +244,42 @@ mvn verify -P integration-tests
 
 # Run with coverage
 mvn test jacoco:report
+```
+
+### End-to-End Tests (Playwright)
+
+```bash
+cd frontend/web
+
+# Install Playwright browsers
+npx playwright install
+
+# Run E2E tests
+npm run test:e2e
+
+# Run with UI mode for debugging
+npx playwright test --ui
+
+# Run specific test file
+npx playwright test auth.spec.ts
+
+# View test report
+npx playwright show-report
+```
+
+### Performance Tests (k6)
+
+```bash
+# Install k6 (https://k6.io/docs/getting-started/installation/)
+
+# Run load test
+k6 run load-tests/expense-load-test.js
+
+# Run stress test
+k6 run load-tests/stress-test.js
+
+# Run soak test (4 hours)
+k6 run load-tests/soak-test.js
 ```
 
 ## 🔧 Configuration
@@ -189,6 +303,18 @@ Key variables:
 | `REDIS_HOST` | Redis host | localhost |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka servers | localhost:9092 |
 | `JWT_SECRET` | JWT signing secret | (generate one) |
+
+### Frontend Configuration
+
+Create a `.env.local` file in `frontend/web/`:
+
+```bash
+# API endpoint (API Gateway)
+NEXT_PUBLIC_API_URL=http://localhost:8080/api/v1
+
+# WebSocket for real-time notifications
+NEXT_PUBLIC_WS_URL=ws://localhost:8080
+```
 
 ### Service Configuration
 
@@ -239,8 +365,59 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 
 - [Architecture Overview](ARCHITECTURE.md)
 - [Project Plan](PROJECT_PLAN.md)
-- [API Reference](docs/api/)
-- [Deployment Guide](docs/deployment.md)
+- [API Reference](docs/API_DOCUMENTATION.md)
+- [Development Guide](docs/DEVELOPMENT_GUIDE.md)
+- [Phase 1 Implementation](docs/PHASE_1_IMPLEMENTATION.md)
+- [Phase 3 Implementation](docs/PHASE_3_IMPLEMENTATION.md)
+- [Security Checklist](docs/SECURITY_CHECKLIST.md)
+
+## 🚀 Production Deployment
+
+### Kubernetes Deployment
+
+```bash
+# Apply namespace and configs
+kubectl apply -f infrastructure/kubernetes/namespace.yaml
+kubectl apply -f infrastructure/kubernetes/config/
+
+# Deploy services
+kubectl apply -f infrastructure/kubernetes/services/
+
+# Apply ingress
+kubectl apply -f infrastructure/kubernetes/ingress/
+
+# Set up monitoring
+kubectl apply -f infrastructure/kubernetes/monitoring/
+
+# Apply security policies
+kubectl apply -f infrastructure/kubernetes/security/
+```
+
+### CI/CD Pipeline
+
+The project includes GitHub Actions workflows for:
+
+- **CI** (`.github/workflows/ci.yml`): Runs on every push/PR
+  - Build all services
+  - Run unit and integration tests
+  - Code quality checks (SonarCloud)
+  - Security scanning (Trivy, OWASP)
+
+- **Production Deployment** (`.github/workflows/deploy-production.yml`): Runs on tags
+  - Build Docker images
+  - Push to container registry
+  - Deploy to Kubernetes
+  - Run smoke tests
+  - Automatic rollback on failure
+
+### Monitoring
+
+- **Prometheus**: Metrics collection
+- **Grafana**: Dashboards and visualization
+- **Loki**: Log aggregation
+- **Jaeger**: Distributed tracing
+
+Dashboards available at: http://grafana.splitter.example.com
 
 ## 📄 License
 

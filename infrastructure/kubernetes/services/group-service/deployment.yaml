@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: group-service
+  namespace: splitter
+  labels:
+    app: group-service
+    app.kubernetes.io/name: group-service
+    app.kubernetes.io/part-of: splitter-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: group-service
+  template:
+    metadata:
+      labels:
+        app: group-service
+        app.kubernetes.io/name: group-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8082"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      serviceAccountName: splitter-service-account
+      containers:
+      - name: group-service
+        image: ghcr.io/splitter/group-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8082
+          name: http
+        envFrom:
+        - configMapRef:
+            name: splitter-config
+        - secretRef:
+            name: splitter-secrets
+        env:
+        - name: SERVER_PORT
+          value: "8082"
+        - name: SPRING_R2DBC_URL
+          valueFrom:
+            secretKeyRef:
+              name: splitter-secrets
+              key: GROUP_DB_URL
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8082
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8082
+          initialDelaySeconds: 30
+          periodSeconds: 5
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: group-service
+  namespace: splitter
+  labels:
+    app: group-service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8082
+    targetPort: 8082
+    name: http
+  selector:
+    app: group-service
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: group-service-hpa
+  namespace: splitter
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: group-service
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70

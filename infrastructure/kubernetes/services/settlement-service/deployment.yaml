@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: settlement-service
+  namespace: splitter
+  labels:
+    app: settlement-service
+    app.kubernetes.io/name: settlement-service
+    app.kubernetes.io/part-of: splitter-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: settlement-service
+  template:
+    metadata:
+      labels:
+        app: settlement-service
+        app.kubernetes.io/name: settlement-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8085"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      serviceAccountName: splitter-service-account
+      containers:
+      - name: settlement-service
+        image: ghcr.io/splitter/settlement-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8085
+          name: http
+        envFrom:
+        - configMapRef:
+            name: splitter-config
+        - secretRef:
+            name: splitter-secrets
+        env:
+        - name: SERVER_PORT
+          value: "8085"
+        - name: SPRING_R2DBC_URL
+          valueFrom:
+            secretKeyRef:
+              name: splitter-secrets
+              key: SETTLEMENT_DB_URL
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8085
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8085
+          initialDelaySeconds: 30
+          periodSeconds: 5
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: settlement-service
+  namespace: splitter
+  labels:
+    app: settlement-service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8085
+    targetPort: 8085
+    name: http
+  selector:
+    app: settlement-service
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: settlement-service-hpa
+  namespace: splitter
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: settlement-service
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70

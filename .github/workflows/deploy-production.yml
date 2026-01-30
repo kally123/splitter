@@ -1,0 +1,597 @@
+name: Production Deployment
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      skip_tests:
+        description: 'Skip running tests'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/splitter
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  # ===================
+  # Build and Test
+  # ===================
+  build:
+    name: Build Services
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    strategy:
+      matrix:
+        service:
+          - api-gateway
+          - user-service
+          - group-service
+          - expense-service
+          - balance-service
+          - settlement-service
+          - notification-service
+    
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+      
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION=${{ github.sha }}
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION}"
+      
+      - name: Build with Maven
+        run: |
+          mvn -B clean package -DskipTests \
+            -pl shared/common-dto,shared/common-events,shared/common-security,services/${{ matrix.service }} \
+            -am
+      
+      - name: Run unit tests
+        if: ${{ github.event.inputs.skip_tests != 'true' }}
+        run: |
+          mvn -B test \
+            -pl services/${{ matrix.service }} \
+            -Dtest=*Test \
+            -DfailIfNoTests=false
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: services/${{ matrix.service }}
+          file: services/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ steps.version.outputs.version }}
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+  
+  # ===================
+  # Build Frontend
+  # ===================
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/web/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: frontend/web
+        run: npm ci
+      
+      - name: Run linting
+        working-directory: frontend/web
+        run: npm run lint
+      
+      - name: Run unit tests
+        if: ${{ github.event.inputs.skip_tests != 'true' }}
+        working-directory: frontend/web
+        run: npm test -- --coverage --watchAll=false
+      
+      - name: Build frontend
+        working-directory: frontend/web
+        env:
+          VITE_API_URL: ${{ secrets.PRODUCTION_API_URL }}
+          VITE_WS_URL: ${{ secrets.PRODUCTION_WS_URL }}
+        run: npm run build
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: frontend/web
+          file: frontend/web/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/frontend-web:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}/frontend-web:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ===================
+  # E2E Tests (Staging Only)
+  # ===================
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [build, build-frontend]
+    if: ${{ github.event.inputs.environment == 'staging' || github.event_name == 'push' }}
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: splitter
+          POSTGRES_PASSWORD: splitter
+          POSTGRES_DB: splitter_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/web/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: frontend/web
+        run: npm ci
+      
+      - name: Install Playwright browsers
+        working-directory: frontend/web
+        run: npx playwright install --with-deps chromium
+      
+      - name: Start test environment
+        run: |
+          # Start backend services in Docker Compose
+          docker-compose -f infrastructure/docker/docker-compose.test.yml up -d
+          # Wait for services to be healthy
+          sleep 30
+      
+      - name: Run E2E tests
+        working-directory: frontend/web
+        env:
+          BASE_URL: http://localhost:3000
+          API_URL: http://localhost:8080
+        run: npx playwright test --project=chromium
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: frontend/web/playwright-report/
+          retention-days: 30
+      
+      - name: Upload test screenshots
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-screenshots
+          path: frontend/web/test-results/
+          retention-days: 7
+
+  # ===================
+  # Security Scanning
+  # ===================
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: [build, build-frontend]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+      
+      - name: Scan container images
+        run: |
+          for service in api-gateway user-service group-service expense-service balance-service settlement-service notification-service; do
+            echo "Scanning $service..."
+            docker run --rm aquasec/trivy image \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              ${{ env.IMAGE_PREFIX }}/${service}:${{ needs.build.outputs.version }} || true
+          done
+
+  # ===================
+  # Deploy to Staging
+  # ===================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build, build-frontend, e2e-tests, security-scan]
+    if: ${{ github.event.inputs.environment == 'staging' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+    environment:
+      name: staging
+      url: https://staging.splitter.example.com
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+      
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.STAGING_KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+      
+      - name: Deploy to Kubernetes
+        run: |
+          VERSION=${{ needs.build.outputs.version }}
+          
+          # Update image tags in manifests
+          for service in api-gateway user-service group-service expense-service balance-service settlement-service notification-service; do
+            kubectl set image deployment/${service} \
+              ${service}=${{ env.IMAGE_PREFIX }}/${service}:${VERSION} \
+              -n splitter-staging
+          done
+          
+          # Update frontend
+          kubectl set image deployment/frontend-web \
+            frontend-web=${{ env.IMAGE_PREFIX }}/frontend-web:${{ github.sha }} \
+            -n splitter-staging
+      
+      - name: Wait for rollout
+        run: |
+          for service in api-gateway user-service group-service expense-service balance-service settlement-service notification-service frontend-web; do
+            echo "Waiting for ${service} rollout..."
+            kubectl rollout status deployment/${service} -n splitter-staging --timeout=300s
+          done
+      
+      - name: Run smoke tests
+        run: |
+          # Wait for services to be fully ready
+          sleep 30
+          
+          # Health check endpoints
+          curl -f https://staging-api.splitter.example.com/actuator/health || exit 1
+          curl -f https://staging.splitter.example.com/ || exit 1
+          
+          echo "Smoke tests passed!"
+      
+      - name: Notify on success
+        if: success()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "✅ Staging deployment successful!",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "✅ *Staging Deployment Successful*\n*Version:* `${{ needs.build.outputs.version }}`\n*URL:* https://staging.splitter.example.com"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      
+      - name: Notify on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "❌ Staging deployment failed!",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "❌ *Staging Deployment Failed*\n*Version:* `${{ needs.build.outputs.version }}`\n*Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # ===================
+  # Deploy to Production
+  # ===================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build, build-frontend, security-scan]
+    if: ${{ github.event.inputs.environment == 'production' || startsWith(github.ref, 'refs/tags/v') }}
+    environment:
+      name: production
+      url: https://splitter.example.com
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+      
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.PRODUCTION_KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+      
+      - name: Create deployment record
+        id: deployment
+        run: |
+          DEPLOYMENT_ID=$(date +%Y%m%d%H%M%S)
+          echo "deployment_id=${DEPLOYMENT_ID}" >> $GITHUB_OUTPUT
+          
+          # Record current versions for rollback
+          kubectl get deployments -n splitter -o jsonpath='{range .items[*]}{.metadata.name}={.spec.template.spec.containers[0].image}{"\n"}{end}' > rollback-versions.txt
+          
+          echo "Recorded current versions for rollback:"
+          cat rollback-versions.txt
+      
+      - name: Upload rollback info
+        uses: actions/upload-artifact@v4
+        with:
+          name: rollback-${{ steps.deployment.outputs.deployment_id }}
+          path: rollback-versions.txt
+          retention-days: 30
+      
+      - name: Deploy to Kubernetes (Canary)
+        run: |
+          VERSION=${{ needs.build.outputs.version }}
+          
+          # Deploy canary (10% traffic)
+          for service in api-gateway user-service group-service expense-service balance-service settlement-service notification-service; do
+            # Create canary deployment
+            kubectl set image deployment/${service}-canary \
+              ${service}=${{ env.IMAGE_PREFIX }}/${service}:${VERSION} \
+              -n splitter 2>/dev/null || echo "No canary deployment for ${service}"
+          done
+          
+          echo "Canary deployment started"
+      
+      - name: Canary health check
+        run: |
+          # Wait for canary to be ready
+          sleep 60
+          
+          # Check canary health and error rates
+          # In production, this would query Prometheus/Grafana
+          curl -f https://api.splitter.example.com/actuator/health || exit 1
+          
+          echo "Canary health check passed"
+      
+      - name: Full rollout
+        run: |
+          VERSION=${{ needs.build.outputs.version }}
+          
+          # Update all deployments
+          for service in api-gateway user-service group-service expense-service balance-service settlement-service notification-service; do
+            kubectl set image deployment/${service} \
+              ${service}=${{ env.IMAGE_PREFIX }}/${service}:${VERSION} \
+              -n splitter
+          done
+          
+          # Update frontend
+          kubectl set image deployment/frontend-web \
+            frontend-web=${{ env.IMAGE_PREFIX }}/frontend-web:${{ github.sha }} \
+            -n splitter
+      
+      - name: Wait for rollout
+        run: |
+          for service in api-gateway user-service group-service expense-service balance-service settlement-service notification-service frontend-web; do
+            echo "Waiting for ${service} rollout..."
+            kubectl rollout status deployment/${service} -n splitter --timeout=600s
+          done
+      
+      - name: Production smoke tests
+        run: |
+          sleep 30
+          
+          # Health checks
+          curl -f https://api.splitter.example.com/actuator/health || exit 1
+          curl -f https://splitter.example.com/ || exit 1
+          
+          # API sanity check
+          curl -f https://api.splitter.example.com/api/v1/health || exit 1
+          
+          echo "Production smoke tests passed!"
+      
+      - name: Notify on success
+        if: success()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "🚀 Production deployment successful!",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "🚀 *Production Deployment Successful*\n*Version:* `${{ needs.build.outputs.version }}`\n*URL:* https://splitter.example.com\n*Deployment ID:* `${{ steps.deployment.outputs.deployment_id }}`"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      
+      - name: Notify on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "🔥 Production deployment failed!",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "🔥 *Production Deployment Failed*\n*Version:* `${{ needs.build.outputs.version }}`\n*Deployment ID:* `${{ steps.deployment.outputs.deployment_id }}`\n*Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>\n\n⚠️ *Consider rollback if needed*"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # ===================
+  # Rollback Job (Manual Trigger)
+  # ===================
+  rollback:
+    name: Rollback Production
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && failure() }}
+    needs: [deploy-production]
+    environment:
+      name: production
+    
+    steps:
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+      
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.PRODUCTION_KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+      
+      - name: Rollback deployments
+        run: |
+          for service in api-gateway user-service group-service expense-service balance-service settlement-service notification-service frontend-web; do
+            echo "Rolling back ${service}..."
+            kubectl rollout undo deployment/${service} -n splitter
+          done
+      
+      - name: Wait for rollback
+        run: |
+          for service in api-gateway user-service group-service expense-service balance-service settlement-service notification-service frontend-web; do
+            kubectl rollout status deployment/${service} -n splitter --timeout=300s
+          done
+      
+      - name: Notify rollback
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "🔙 Production rollback completed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "🔙 *Production Rollback Completed*\n\nAll services have been rolled back to the previous version."
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

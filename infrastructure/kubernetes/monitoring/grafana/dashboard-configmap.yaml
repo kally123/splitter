@@ -1,0 +1,130 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: splitter-grafana-dashboards
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/name: splitter
+    app.kubernetes.io/part-of: splitter-platform
+data:
+  splitter-overview.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "title": "Availability",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "targets": [{
+            "expr": "(1 - sum(rate(http_server_requests_seconds_count{namespace=\"splitter\", status=~\"5..\"}[5m])) / sum(rate(http_server_requests_seconds_count{namespace=\"splitter\"}[5m]))) * 100",
+            "legendFormat": "Availability"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": 95 },
+                  { "color": "green", "value": 99 }
+                ]
+              },
+              "unit": "percent"
+            }
+          }
+        },
+        {
+          "title": "P95 Latency",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "targets": [{
+            "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{namespace=\"splitter\"}[5m])) by (le)) * 1000",
+            "legendFormat": "p95"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 300 },
+                  { "color": "red", "value": 500 }
+                ]
+              },
+              "unit": "ms"
+            }
+          }
+        },
+        {
+          "title": "Error Rate",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "targets": [{
+            "expr": "sum(rate(http_server_requests_seconds_count{namespace=\"splitter\", status=~\"5..\"}[5m])) / sum(rate(http_server_requests_seconds_count{namespace=\"splitter\"}[5m])) * 100",
+            "legendFormat": "Error Rate"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 1 },
+                  { "color": "red", "value": 5 }
+                ]
+              },
+              "unit": "percent"
+            }
+          }
+        },
+        {
+          "title": "Request Rate",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "targets": [{
+            "expr": "sum(rate(http_server_requests_seconds_count{namespace=\"splitter\"}[5m]))",
+            "legendFormat": "req/s"
+          }],
+          "fieldConfig": {
+            "defaults": { "unit": "reqps" }
+          }
+        },
+        {
+          "title": "Request Rate by Service",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+          "targets": [{
+            "expr": "sum(rate(http_server_requests_seconds_count{namespace=\"splitter\"}[5m])) by (service)",
+            "legendFormat": "{{ service }}"
+          }],
+          "fieldConfig": {
+            "defaults": { "unit": "reqps" }
+          }
+        },
+        {
+          "title": "Response Time by Service (p95)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+          "targets": [{
+            "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{namespace=\"splitter\"}[5m])) by (le, service))",
+            "legendFormat": "{{ service }}"
+          }],
+          "fieldConfig": {
+            "defaults": { "unit": "s" }
+          }
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 38,
+      "tags": ["splitter"],
+      "time": { "from": "now-1h", "to": "now" },
+      "title": "Splitter Overview",
+      "uid": "splitter-overview"
+    }

@@ -1,0 +1,89 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: splitter-ingress
+  namespace: splitter
+  labels:
+    app.kubernetes.io/name: splitter-ingress
+    app.kubernetes.io/part-of: splitter-platform
+  annotations:
+    # Ingress class
+    kubernetes.io/ingress.class: nginx
+    
+    # SSL/TLS
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    
+    # Rate limiting
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    
+    # Timeouts
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    
+    # Body size
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    
+    # WebSocket support
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+    
+    # CORS
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://splitter.example.com"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
+    
+    # Security headers
+    nginx.ingress.kubernetes.io/server-snippet: |
+      add_header X-Frame-Options "SAMEORIGIN" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header X-XSS-Protection "1; mode=block" always;
+      add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+spec:
+  tls:
+  - hosts:
+    - api.splitter.example.com
+    secretName: splitter-tls-secret
+  rules:
+  - host: api.splitter.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 8080
+---
+# Frontend Ingress (if serving frontend from K8s)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: splitter-frontend-ingress
+  namespace: splitter
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  tls:
+  - hosts:
+    - splitter.example.com
+    secretName: splitter-frontend-tls-secret
+  rules:
+  - host: splitter.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 3000

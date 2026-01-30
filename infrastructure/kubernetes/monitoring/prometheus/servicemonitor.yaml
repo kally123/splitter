@@ -1,0 +1,40 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: splitter-services
+  namespace: splitter
+  labels:
+    app.kubernetes.io/name: splitter
+    app.kubernetes.io/part-of: splitter-platform
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: splitter-platform
+  namespaceSelector:
+    matchNames:
+    - splitter
+  endpoints:
+  - port: http
+    path: /actuator/prometheus
+    interval: 30s
+    scrapeTimeout: 10s
+    honorLabels: true
+---
+# Separate ServiceMonitor for API Gateway (different metrics path if needed)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: splitter-gateway
+  namespace: splitter
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: api-gateway
+  endpoints:
+  - port: http
+    path: /actuator/prometheus
+    interval: 15s
+    scrapeTimeout: 10s
