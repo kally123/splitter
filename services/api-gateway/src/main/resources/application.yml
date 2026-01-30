@@ -1,0 +1,123 @@
+server:
+  port: ${API_GATEWAY_PORT:8080}
+
+spring:
+  application:
+    name: api-gateway
+
+  # Cloud Gateway Configuration
+  cloud:
+    gateway:
+      # Global CORS (can also be configured per route)
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowed-origins:
+              - "http://localhost:3000"
+              - "http://localhost:5173"
+            allowed-methods:
+              - GET
+              - POST
+              - PUT
+              - PATCH
+              - DELETE
+              - OPTIONS
+            allowed-headers: "*"
+            allow-credentials: true
+            max-age: 3600
+
+      # Default filters applied to all routes
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST
+
+      # Discovery client disabled (using direct URIs for now)
+      discovery:
+        locator:
+          enabled: false
+
+  # Redis for Rate Limiting
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:splitter}
+
+  # Security - JWT Configuration
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # For development, use a symmetric key
+          # In production, use issuer-uri or jwk-set-uri
+          secret: ${JWT_SECRET:your-256-bit-secret-key-here-change-in-production}
+
+# Service URLs (for direct routing without service discovery)
+services:
+  user-service:
+    url: ${USER_SERVICE_URL:http://localhost:8081}
+  group-service:
+    url: ${GROUP_SERVICE_URL:http://localhost:8082}
+  expense-service:
+    url: ${EXPENSE_SERVICE_URL:http://localhost:8083}
+  balance-service:
+    url: ${BALANCE_SERVICE_URL:http://localhost:8084}
+  settlement-service:
+    url: ${SETTLEMENT_SERVICE_URL:http://localhost:8085}
+  notification-service:
+    url: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
+
+# Actuator endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,gateway
+  endpoint:
+    health:
+      show-details: when_authorized
+    gateway:
+      enabled: true
+  health:
+    circuitbreakers:
+      enabled: true
+
+# Resilience4j Circuit Breaker Configuration
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 10s
+        failureRateThreshold: 50
+        eventConsumerBufferSize: 10
+    instances:
+      userServiceCircuitBreaker:
+        baseConfig: default
+      groupServiceCircuitBreaker:
+        baseConfig: default
+      expenseServiceCircuitBreaker:
+        baseConfig: default
+      balanceServiceCircuitBreaker:
+        baseConfig: default
+      settlementServiceCircuitBreaker:
+        baseConfig: default
+      notificationServiceCircuitBreaker:
+        baseConfig: default
+
+  timelimiter:
+    configs:
+      default:
+        timeoutDuration: 10s
+
+# Logging
+logging:
+  level:
+    root: INFO
+    com.splitter.gateway: DEBUG
+    org.springframework.cloud.gateway: DEBUG
+    org.springframework.security: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{correlationId}] %-5level %logger{36} - %msg%n"

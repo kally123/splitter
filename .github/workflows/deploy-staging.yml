@@ -1,0 +1,91 @@
+name: Deploy to Staging
+
+on:
+  workflow_run:
+    workflows: ["Build Docker Images"]
+    types:
+      - completed
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository }}
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment || 'staging' }}
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    environment: ${{ inputs.environment || 'staging' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure kubectl
+        run: |
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+
+      - name: Update image tags
+        run: |
+          # Get the short SHA
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          
+          # Update Kubernetes manifests with new image tags
+          cd infrastructure/kubernetes/overlays/${{ inputs.environment || 'staging' }}
+          
+          # Update each service image
+          for service in api-gateway user-service group-service expense-service balance-service settlement-service notification-service; do
+            kustomize edit set image ${REGISTRY}/${IMAGE_PREFIX}/${service}:sha-${SHORT_SHA}
+          done
+
+      - name: Deploy to Kubernetes
+        run: |
+          export KUBECONFIG=kubeconfig
+          cd infrastructure/kubernetes/overlays/${{ inputs.environment || 'staging' }}
+          kustomize build . | kubectl apply -f -
+
+      - name: Wait for rollout
+        run: |
+          export KUBECONFIG=kubeconfig
+          kubectl rollout status deployment/api-gateway -n splitter --timeout=300s
+          kubectl rollout status deployment/user-service -n splitter --timeout=300s
+          kubectl rollout status deployment/expense-service -n splitter --timeout=300s
+
+      - name: Run smoke tests
+        run: |
+          # Wait for services to be ready
+          sleep 30
+          
+          # Run health checks
+          GATEWAY_URL="${{ secrets.GATEWAY_URL }}"
+          
+          echo "Checking API Gateway health..."
+          curl -f "${GATEWAY_URL}/actuator/health" || exit 1
+          
+          echo "All smoke tests passed!"
+
+      - name: Notify on success
+        if: success()
+        run: echo "Deployment to ${{ inputs.environment || 'staging' }} completed successfully!"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "Deployment to ${{ inputs.environment || 'staging' }} failed!"
+          # Add Slack/Teams notification here if needed

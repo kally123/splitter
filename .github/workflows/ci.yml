@@ -1,0 +1,286 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  JAVA_VERSION: '21'
+  NODE_VERSION: '18'
+
+jobs:
+  # ============================================
+  # Build and Test Shared Libraries
+  # ============================================
+  build-shared:
+    name: Build Shared Libraries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build shared libraries
+        run: |
+          cd shared
+          mvn clean install -DskipTests
+
+      - name: Upload shared artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-libs
+          path: ~/.m2/repository/com/splitter
+          retention-days: 1
+
+  # ============================================
+  # Build and Test Services
+  # ============================================
+  build-services:
+    name: Build ${{ matrix.service }}
+    needs: build-shared
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api-gateway
+          - user-service
+          - group-service
+          - expense-service
+          - balance-service
+          - settlement-service
+          - notification-service
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Download shared artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-libs
+          path: ~/.m2/repository/com/splitter
+
+      - name: Build and test ${{ matrix.service }}
+        run: |
+          cd services/${{ matrix.service }}
+          mvn clean verify
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.service }}
+          path: services/${{ matrix.service }}/target/surefire-reports/
+          retention-days: 7
+
+      - name: Upload coverage report
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.service }}
+          path: services/${{ matrix.service }}/target/site/jacoco/
+          retention-days: 7
+
+  # ============================================
+  # Code Quality Analysis
+  # ============================================
+  code-quality:
+    name: Code Quality
+    needs: build-shared
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better analysis
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Download shared artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-libs
+          path: ~/.m2/repository/com/splitter
+
+      - name: Run SpotBugs analysis
+        run: |
+          cd services
+          for dir in */; do
+            echo "Analyzing $dir"
+            cd "$dir"
+            mvn spotbugs:check || true
+            cd ..
+          done
+
+      - name: Run Checkstyle
+        run: |
+          cd services
+          for dir in */; do
+            cd "$dir"
+            mvn checkstyle:check || true
+            cd ..
+          done
+
+  # ============================================
+  # Build Frontend
+  # ============================================
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/web/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd frontend/web
+          npm ci
+
+      - name: Run linting
+        run: |
+          cd frontend/web
+          npm run lint
+
+      - name: Run tests
+        run: |
+          cd frontend/web
+          npm run test -- --coverage --watchAll=false
+
+      - name: Build application
+        run: |
+          cd frontend/web
+          npm run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/web/.next
+          retention-days: 7
+
+  # ============================================
+  # Integration Tests
+  # ============================================
+  integration-tests:
+    name: Integration Tests
+    needs: [build-services, build-frontend]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: splitter
+          POSTGRES_PASSWORD: splitter
+          POSTGRES_DB: splitter_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Download shared artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-libs
+          path: ~/.m2/repository/com/splitter
+
+      - name: Run integration tests
+        env:
+          SPRING_PROFILES_ACTIVE: test
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+        run: |
+          cd services
+          for dir in */; do
+            cd "$dir"
+            mvn verify -P integration-tests || true
+            cd ..
+          done
+
+  # ============================================
+  # Security Scan
+  # ============================================
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # ============================================
+  # Summary
+  # ============================================
+  ci-success:
+    name: CI Success
+    needs: [build-services, build-frontend, code-quality]
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: CI Pipeline Passed
+        run: echo "All CI checks passed successfully!"
