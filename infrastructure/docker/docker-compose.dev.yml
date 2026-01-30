@@ -99,6 +99,9 @@ services:
       kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic settlement.events --partitions 3 --replication-factor 1
       kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic balance.events --partitions 3 --replication-factor 1
       kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic notification.events --partitions 3 --replication-factor 1
+      kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic currency.events --partitions 3 --replication-factor 1
+      kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic receipt.events --partitions 3 --replication-factor 1
+      kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.events --partitions 3 --replication-factor 1
 
       echo 'Kafka topics created successfully!'
       kafka-topics.sh --bootstrap-server kafka:9092 --list
@@ -113,7 +116,7 @@ services:
     image: provectuslabs/kafka-ui:latest
     container_name: splitter-kafka-ui
     ports:
-      - "8090:8080"
+      - "8100:8080"
     environment:
       - KAFKA_CLUSTERS_0_NAME=splitter-local
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092

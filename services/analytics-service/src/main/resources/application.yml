@@ -1,0 +1,48 @@
+server:
+  port: 8090
+
+spring:
+  application:
+    name: analytics-service
+  
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/splitter_expenses
+    username: ${DB_USERNAME:splitter}
+    password: ${DB_PASSWORD:splitter}
+    pool:
+      initial-size: 5
+      max-size: 20
+  
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/splitter}
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+# Logging
+logging:
+  level:
+    com.splitter: DEBUG
+    org.springframework.r2dbc: INFO
+
+# OpenAPI
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html

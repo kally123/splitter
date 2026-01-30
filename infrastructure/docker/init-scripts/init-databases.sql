@@ -10,6 +10,10 @@ CREATE DATABASE splitter_expenses;
 CREATE DATABASE splitter_balances;
 CREATE DATABASE splitter_settlements;
 CREATE DATABASE splitter_notifications;
+CREATE DATABASE splitter_currency;
+CREATE DATABASE splitter_receipts;
+CREATE DATABASE splitter_payments;
+CREATE DATABASE splitter_analytics;
 
 -- Grant privileges
 GRANT ALL PRIVILEGES ON DATABASE splitter_users TO splitter;
@@ -18,6 +22,10 @@ GRANT ALL PRIVILEGES ON DATABASE splitter_expenses TO splitter;
 GRANT ALL PRIVILEGES ON DATABASE splitter_balances TO splitter;
 GRANT ALL PRIVILEGES ON DATABASE splitter_settlements TO splitter;
 GRANT ALL PRIVILEGES ON DATABASE splitter_notifications TO splitter;
+GRANT ALL PRIVILEGES ON DATABASE splitter_currency TO splitter;
+GRANT ALL PRIVILEGES ON DATABASE splitter_receipts TO splitter;
+GRANT ALL PRIVILEGES ON DATABASE splitter_payments TO splitter;
+GRANT ALL PRIVILEGES ON DATABASE splitter_analytics TO splitter;
 
 -- =============================================
 -- User Service Schema

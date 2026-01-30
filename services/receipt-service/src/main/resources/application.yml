@@ -1,0 +1,78 @@
+server:
+  port: 8088
+
+spring:
+  application:
+    name: receipt-service
+  
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/splitter_receipts
+    username: ${DB_USERNAME:splitter}
+    password: ${DB_PASSWORD:splitter}
+    pool:
+      initial-size: 5
+      max-size: 20
+  
+  flyway:
+    url: jdbc:postgresql://localhost:5432/splitter_receipts
+    user: ${DB_USERNAME:splitter}
+    password: ${DB_PASSWORD:splitter}
+    enabled: true
+    baseline-on-migrate: true
+  
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+  
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/splitter}
+
+# AWS Configuration (disabled by default for development)
+aws:
+  enabled: false
+  region: ${AWS_REGION:us-east-1}
+  access-key-id: ${AWS_ACCESS_KEY_ID:}
+  secret-access-key: ${AWS_SECRET_ACCESS_KEY:}
+
+# Storage Configuration
+storage:
+  type: local  # local or s3
+  local:
+    path: ./receipts-data
+  s3:
+    bucket: ${S3_BUCKET:splitter-receipts}
+    prefix: receipts
+
+# OCR Configuration
+ocr:
+  mock:
+    enabled: true  # Use mock OCR in development
+  aws:
+    enabled: false  # AWS Textract
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+# Logging
+logging:
+  level:
+    com.splitter: DEBUG
+    org.springframework.r2dbc: INFO
+
+# OpenAPI
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html

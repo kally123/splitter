@@ -16,6 +16,7 @@
         <module>common-dto</module>
         <module>common-events</module>
         <module>common-security</module>
+        <module>common-cache</module>
     </modules>
 
     <properties>
@@ -63,6 +64,11 @@
             <dependency>
                 <groupId>com.splitter</groupId>
                 <artifactId>common-security</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.splitter</groupId>
+                <artifactId>common-cache</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
